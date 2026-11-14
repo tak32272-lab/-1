@@ -80,9 +80,17 @@ ul.cm{margin:6px 0;padding-left:18px;font-size:13px;line-height:1.8}
 
   <section>
     <h2>▶️ パッチ・シミュレーション</h2>
-    <div class="small">選択中のゲームに対して、5つの改ざんシナリオを「試した想定」で流し、防御設定がブロックできるかを判定します。</div>
+    <div class="small">選択中のゲームに対して、6つの改ざんシナリオを「試した想定」で流し、防御設定がブロックできるかを判定します。</div>
     <button id="runSimBtn">パッチ・シミュレーションを実行</button>
     <div id="simResult" class="result"></div>
+  </section>
+
+  <section>
+    <h2>🔍 dump耐性チェック（自分のAPK専用）</h2>
+    <div class="small">自分のAPKがどれくらい簡単に dump（コード解析）されやすいかを、自分のビルド設定を自己点検して判定します。実際の dump やコード抽出は行いません。当てはまる項目にチェックを入れて判定してください。</div>
+    <div id="dumpChecks" style="margin-top:8px"></div>
+    <button id="runDumpBtn">dump耐性を判定</button>
+    <div id="dumpResult" class="result"></div>
   </section>
 
   <section>
@@ -119,26 +127,44 @@ var SCENARIOS=[
   cm:'セーブデータには改ざん検知用の署名を付け、重要な進行データはサーバー保存も検討する。'},
  {id:'price', name:'⑤ 価格改ざん', defense:'priceVerify', defenseName:'価格・商品IDのサーバー照合',
   steps:['商品価格を ¥0 や別商品の価格に差し替えた購入フローを試す','サーバー側で商品IDと価格が照合され、異常が弾かれるか確認する','結果を検知ログに記録する'],
-  cm:'価格と商品IDはクライアントの表示を信用せず、サーバー側の商品マスタと照合する。'}
+  cm:'価格と商品IDはクライアントの表示を信用せず、サーバー側の商品マスタと照合する。'},
+ {id:'kick', name:'⑥ キック無効化（キック耐性）', defense:'kickServer', defenseName:'キック判定のサーバー側実施',
+  steps:['自分のテスト用ビルドで、クライアント側のキック処理を無視するよう改変した想定で接続する','サーバー側がセッションを切断し、再参加や報酬付与を止めるか確認する','サーバー側の切断ログ・ペナルティ記録を検知ログに記録する'],
+  cm:'キック（強制切断）の決定は必ずサーバー側で行う。クライアントがキック通知を無視しても、サーバーがセッションを切れば効果は消えない。'}
 ];
 var DEFENSES=[
  {id:'serverVerify', name:'レシートをサーバー側で検証', desc:'購入トークンを自分のサーバーで照合している'},
  {id:'noLocalTrust', name:'ローカルフラグを信用しない', desc:'isFree / purchased を端末内だけで判定していない'},
  {id:'signature', name:'署名チェック', desc:'起動時に正規署名と照合している'},
  {id:'priceVerify', name:'価格・商品IDのサーバー照合', desc:'表示価格を信用せずサーバーで照合している'},
- {id:'saveSign', name:'セーブデータの署名/暗号化', desc:'セーブ改ざんを検知できる'}
+ {id:'saveSign', name:'セーブデータの署名/暗号化', desc:'セーブ改ざんを検知できる'},
+ {id:'kickServer', name:'キック判定はサーバー側', desc:'キック/切断の決定をサーバーが行い、クライアントの申告を信用していない'}
 ];
 var STAGES=[
  {n:0, name:'Stage 0：設計', desc:'APKが無くてもできる段階。課金の設計図を紙（メモ）で固める。',
-  checks:['購入状態をどこで判定するか決めた（サーバー推奨）','商品IDと価格のマスタをサーバー側に置く設計にした','テスト用ビルドだけ allFree=true にできる設計にした（製品版では無効）']},
+  checks:['購入状態をどこで判定するか決めた（サーバー推奨）','商品IDと価格のマスタをサーバー側に置く設計にした','テスト用ビルドだけ allFree=true にできる設計にした（製品版では無効）','キック（強制切断）の判定をサーバー側で行う設計にした（クライアント任せにしない）']},
  {n:1, name:'Stage 1：モック実装', desc:'課金ライブラリを繋がず、モック（偽データ）で購入フローを実装してテストする。',
   checks:['モック購入で解放/未解放の両ケースを確認した','偽レシートをモックで流して拒否されることを確認した','購入フラグを端末だけで保存していないことを確認した']},
- {n:2, name:'Stage 2：テストビルド実地', desc:'自分のテスト用APKで、テストランナーの5シナリオを実際に試す。',
-  checks:['5シナリオ全てを実施し、検知ログと結果を記録した','FAIL だったシナリオの対策を入れた','再テストで PASS になったことを確認した']},
+ {n:2, name:'Stage 2：テストビルド実地', desc:'自分のテスト用APKで、テストランナーの6シナリオを実際に試す。',
+  checks:['6シナリオ全てを実施し、検知ログと結果を記録した','FAIL だったシナリオの対策を入れた','再テストで PASS になったことを確認した','クライアントでキックを無視する改変を試しても、サーバーが切断できるか確認した']},
  {n:3, name:'Stage 3：プレ本番', desc:'本番と同じ署名・設定で最終確認する。',
-  checks:['本番署名でのみ起動することを確認した','デバッグ用 allFree が製品版で無効なことを確認した','サーバー検証が本番環境で動くことを確認した']}
+  checks:['本番署名でのみ起動することを確認した','デバッグ用 allFree が製品版で無効なことを確認した','サーバー検証が本番環境で動くことを確認した','本番サーバーでキック時の切断・ペナルティが効くことを確認した']}
 ];
-var state={games:[],sel:0,def:{},stageChecks:{},runner:{}};
+var DUMPCHECKS=[
+ {id:'metaEncrypt', name:'IL2CPPの global-metadata.dat を暗号化している',
+  advice:'メタデータが平文だと、汎用ツールでクラス・メソッド構造がそのまま読み取れてしまいます。ビルド時にメタデータ暗号化を有効にしてください。'},
+ {id:'obfuscate', name:'コードの難読化・リネームを有効にしている',
+  advice:'クラス名・メソッド名が元のまま残っていると、課金やキック処理など改変ポイントを特定されやすくなります。難読化/リネームを有効にしてください。'},
+ {id:'stripSymbols', name:'ネイティブライブラリのシンボルをストリップしている',
+  advice:'シンボル情報が残っていると解析の手がかりになります。リリースビルドでは不要なシンボルを削ってください。'},
+ {id:'noDebug', name:'リリースビルドで debuggable が OFF になっている',
+  advice:'debuggable が ON のままだと実機で中身を覗かれやすくなります。製品版では必ず OFF にしてください。'},
+ {id:'signed', name:'APKが正規署名で署名され、署名チェックを入れている',
+  advice:'署名チェックがないと、再署名された改変APKがそのまま動いてしまいます。起動時の署名照合を入れてください。'},
+ {id:'stringEncrypt', name:'重要な文字列（鍵・URL等）を平文で埋め込んでいない',
+  advice:'APIキーなどを平文で埋め込むと抽出されてしまいます。文字列を暗号化し、重要な鍵はサーバー側に置いてください。'}
+];
+var state={games:[],sel:0,def:{},stageChecks:{},runner:{},dumpChecks:{}};
 function load(){
  try{var s=JSON.parse(localStorage.getItem('sectest_state')||'null');if(s&&s.games)state=s;}catch(e){}
  if(!state.games||!state.games.length){
@@ -146,6 +172,7 @@ function load(){
  }
  DEFENSES.forEach(function(d){if(state.def[d.id]===undefined)state.def[d.id]=(d.id==='serverVerify'||d.id==='noLocalTrust'||d.id==='signature');});
  SCENARIOS.forEach(function(sc){if(!state.runner[sc.id])state.runner[sc.id]={log:'',result:''};});
+ if(!state.dumpChecks)state.dumpChecks={};
 }
 function save(){try{localStorage.setItem('sectest_state',JSON.stringify(state));}catch(e){}}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -191,6 +218,35 @@ function runSim(){
  }
  document.getElementById('simResult').innerHTML=out;
  state.lastSim={score:r.score,at:new Date().toISOString()};save();
+}
+function renderDumpChecks(){
+ var el=document.getElementById('dumpChecks');el.innerHTML='';
+ DUMPCHECKS.forEach(function(d){
+   var label=document.createElement('label');label.className='chk';
+   var inp=document.createElement('input');inp.type='checkbox';inp.checked=!!state.dumpChecks[d.id];
+   inp.onchange=function(){state.dumpChecks[d.id]=inp.checked;save();};
+   var span=document.createElement('span');span.textContent=d.name;
+   label.appendChild(inp);label.appendChild(span);el.appendChild(label);
+ });
+}
+function dumpScore(){
+ var done=0;DUMPCHECKS.forEach(function(d){if(state.dumpChecks[d.id])done++;});
+ return {done:done,score:Math.round(done/DUMPCHECKS.length*100)};
+}
+function runDumpCheck(){
+ var r=dumpScore();
+ var out='<div class="score">'+r.score+'<span style="font-size:15px"> / 100（dump耐性スコア）</span></div>';
+ out+='<div>対象：<b>'+esc(state.games[state.sel].name)+'</b>（'+r.done+' / '+DUMPCHECKS.length+' 項目対策済み）</div>';
+ var missing=DUMPCHECKS.filter(function(d){return !state.dumpChecks[d.id];});
+ if(missing.length){
+   out+='<h3>弱いところと固め方</h3><ul class="cm">';
+   missing.forEach(function(d){out+='<li><b>'+esc(d.name)+'（未対策）</b>：'+d.advice+'</li>';});
+   out+='</ul>';
+ }else{
+   out+='<div style="margin-top:8px" class="block">dump耐性の基本対策が揃っています。</div>';
+ }
+ document.getElementById('dumpResult').innerHTML=out;
+ state.lastDump={score:r.score,at:new Date().toISOString()};save();
 }
 function renderStages(){
  var el=document.getElementById('stages');el.innerHTML='';
@@ -257,6 +313,10 @@ function buildRecord(){
  lines.push('■ パッチ・シミュレーション耐性スコア：'+r.score+' / 100');
  SCENARIOS.forEach(function(sc){lines.push('・'+sc.name+' → '+(state.def[sc.defense]?'BLOCK':'すり抜ける想定'));});
  lines.push('');
+ var ds=dumpScore();
+ lines.push('■ dump耐性チェック：'+ds.score+' / 100');
+ DUMPCHECKS.forEach(function(d){lines.push('・['+(state.dumpChecks[d.id]?'x':' ')+'] '+d.name);});
+ lines.push('');
  lines.push('■ 段階テストラボ');
  STAGES.forEach(function(st){st.checks.forEach(function(c,ci){lines.push('・['+(state.stageChecks[st.n+'_'+ci]?'x':' ')+'] '+st.name+'：'+c);});});
  lines.push('');
@@ -285,8 +345,9 @@ document.getElementById('addGameBtn').onclick=function(){
  document.getElementById('newGameName').value='';save();renderGames();
 };
 document.getElementById('runSimBtn').onclick=runSim;
+document.getElementById('runDumpBtn').onclick=runDumpCheck;
 document.getElementById('exportBtn').onclick=exportRecord;
-load();renderGames();renderDefenses();renderStages();renderRunner();save();
+load();renderGames();renderDefenses();renderDumpChecks();renderStages();renderRunner();save();
 </script>
 </body>
 </html>

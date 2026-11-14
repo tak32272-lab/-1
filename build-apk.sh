@@ -13,13 +13,14 @@ B="$(mktemp -d)"
 javac --release 8 -cp "$AJAR" -d "$B/classes" \
   "$PROJ/app/src/main/java/com/ke/sectest/MainActivity.java"
 (cd "$B" && jar cf classes.jar -C classes .)
+mkdir -p "$B/dex"
 "$BT/d8" --lib "$AJAR" --output "$B/dex" "$B/classes.jar"
 "$BT/aapt2" compile -o "$B/res.zip" --dir "$PROJ/app/src/main/res"
 "$BT/aapt2" link -o "$B/unsigned.apk" -I "$AJAR" \
   --manifest "$PROJ/app/src/main/AndroidManifest.xml" \
   -A "$PROJ/app/src/main/assets" -R "$B/res.zip" \
   --min-sdk-version 26 --target-sdk-version 34 \
-  --version-code 1 --version-name 1.0
+  --version-code 2 --version-name 1.1
 (cd "$B" && cp dex/classes.dex . && zip -q unsigned.apk classes.dex)
 "$BT/zipalign" -f -p 4 "$B/unsigned.apk" "$B/aligned.apk"
 KS="${DEBUG_KEYSTORE:-$HOME/workspace/tools/debug.keystore}"
